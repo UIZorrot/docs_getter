@@ -24,7 +24,7 @@ uv sync
 ## Quick Start
 
 ```bash
-uv run python main.py https://openrouter.ai/docs/ --output ../docs
+uv run python main.py https://openrouter.ai/docs/ --output ./docs --workers 10
 ```
 
 This will:
