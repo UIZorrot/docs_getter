@@ -1,150 +1,97 @@
-# doc_getter
+﻿# doc_getter
 
-A standalone tool for crawling and mirroring documentation websites into local Markdown files. Perfect for creating offline, searchable copies of API docs and technical documentation.
+Mirror documentation sites into Markdown, either as a local CLI run or as a FastAPI job service.
 
-## Features
+## What it does
 
-- **Smart crawling**: Automatically discovers pages via sitemaps and robots.txt
-- **Scope control**: Limits crawling to specific URL prefixes (e.g., `/docs/`)
-- **Markdown conversion**: Converts HTML to clean Markdown with front matter metadata
-- **Link rewriting**: Internal links point to local files; external links remain unchanged
-- **Live logging**: Real-time progress with detailed debug information
-- **Manifest tracking**: JSON metadata of all crawled pages and errors
-- **Configurable**: Control depth, page limits, timeouts, and user-agent
+- Crawls docs sites from a seed URL
+- Discovers pages from robots.txt and sitemap.xml
+- Rewrites internal links to local Markdown paths
+- Writes a manifest with crawl metadata
+- Supports a service mode with job polling, cancellation, archives, and file download
 
 ## Installation
 
-Requires Python 3.12+
-
 ```bash
-cd doc_getter
 uv sync
 ```
 
-## Quick Start
+## CLI usage
 
 ```bash
 uv run python main.py https://openrouter.ai/docs/ --output ./docs --workers 10
 ```
 
-This will:
-1. Discover seed URLs from the sitemap / robots.txt
-2. Crawl all pages within the `/docs/` scope (up to 500 by default)
-3. Fetch pages concurrently (5 workers by default)
-4. Save Markdown files to `../docs/`
-5. Generate a `_mirror-manifest.json` with crawl metadata
+Useful flags:
 
-## Options
+- `--scope-prefix /docs/`
+- `--max-pages 200`
+- `--max-depth 10`
+- `--timeout 30`
+- `--delay 0.5`
+- `--no-sitemaps`
+- `--verbose`
 
-### URL & Scope
-- `--scope-prefix /docs/` — Limit crawling to paths under this prefix (auto-detected by default)
-- `--no-sitemaps` — Skip robots.txt and sitemap.xml discovery, crawl only from links
+## Service mode
 
-### Crawl Control
-- `--max-pages 200` — Stop after crawling N pages (default: 500)
-- `--max-depth 10` — Follow links up to N levels deep (default: 20)
-- `--workers 10` — Number of concurrent page fetches (default: 5)
-- `--timeout 30` — Request timeout per page in seconds (default: 30)
-- `--delay 0.5` — Wait N seconds between each batch of fetches (default: 0)
-
-### Other
-- `--user-agent "Custom string"` — Override the User-Agent header
-- `--verbose` — Enable debug logging to see every queued URL and redirect
-
-## Logging
-
-By default, you'll see INFO-level progress as pages are written:
-
-```
-2026-04-08 10:30:15 - INFO - Starting crawl: https://openrouter.ai/docs/
-2026-04-08 10:30:15 - INFO - Max pages: 500, Max depth: 20, Workers: 5
-2026-04-08 10:30:15 - INFO - Discovered 150 URLs from sitemaps
-2026-04-08 10:30:16 - INFO - [1/500] https://openrouter.ai/docs/ (queue=149, in-flight=4)
-2026-04-08 10:30:16 - INFO - [2/500] https://openrouter.ai/docs/api/ (queue=155, in-flight=4)
-...
-```
-
-Add `--verbose` to see every redirect and queued URL:
+Run the API server:
 
 ```bash
-uv run python main.py https://example.com/docs --output ../docs --verbose
+uv run python service.py
 ```
 
-## Output Structure
+or:
 
-```
-docs/
-├── example.com/
-│   ├── index.md                 # Homepage
-│   ├── api/
-│   │   ├── index.md            # /api/ page
-│   │   └── endpoints/
-│   │       └── index.md        # /api/endpoints/ page
-│   └── _mirror-manifest.json   # Crawl metadata
-```
-
-Each Markdown file includes front matter:
-
-```yaml
----
-source_url: https://example.com/docs/api
-title: API Reference
-crawled_at: 2026-04-08T10:30:17+00:00
----
-
-# API Reference
-...
-```
-
-## Manifest
-
-The `_mirror-manifest.json` contains crawl statistics:
-
-```json
-{
-  "start_url": "https://openrouter.ai/docs/",
-  "page_count": 145,
-  "skipped_count": 3,
-  "started_at": "2026-04-08T10:30:15.123456+00:00",
-  "finished_at": "2026-04-08T10:35:42.654321+00:00",
-  "pages": [
-    {
-      "source_url": "https://openrouter.ai/docs/",
-      "final_url": "https://openrouter.ai/docs/",
-      "title": "OpenRouter Docs",
-      "output_path": "index.md",
-      "discovered_links": 24,
-      "queued_links": 18,
-      "status_code": 200
-    }
-  ],
-  "skipped": [
-    {
-      "url": "https://openrouter.ai/docs/pdf/guide.pdf",
-      "error": "Skipped non-HTML response (application/pdf)"
-    }
-  ]
-}
-```
-
-## Examples
-
-**Crawl with depth limit:**
 ```bash
-uv run python main.py https://api.example.com/docs --max-depth 5 --output ./docs
+uv run uvicorn service:app --host 0.0.0.0 --port 8000
 ```
 
-**Crawl slowly to be respectful:**
+The service stores each crawl under `runs/<job_id>/` by default.
+
+### Create a crawl job
+
 ```bash
-uv run python main.py https://docs.example.com --delay 1.0 --output ./docs
+curl -X POST http://127.0.0.1:8000/v1/crawls \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "start_url": "https://openrouter.ai/docs/",
+    "scope_prefix": "/docs/",
+    "workers": 10
+  }'
 ```
 
-**Crawl a specific subdirectory:**
+### Poll the job
+
 ```bash
-uv run python main.py https://docs.example.com/python/ --scope-prefix /python/ --output ./docs
+curl http://127.0.0.1:8000/v1/crawls/<job_id>
 ```
 
-**Crawl without sitemaps (links only):**
+### Download outputs
+
+- Manifest: `GET /v1/crawls/<job_id>/manifest`
+- Zip archive: `GET /v1/crawls/<job_id>/archive`
+- File list: `GET /v1/crawls/<job_id>/files`
+- One file: `GET /v1/crawls/<job_id>/files/<path>`
+- Cancel job: `POST /v1/crawls/<job_id>/cancel`
+
+## Skill package
+
+A reusable Codex skill is included at:
+
+- `skills/doc-getter-service/SKILL.md`
+
+To install it, copy that folder into your Codex skills directory, for example:
+
 ```bash
-uv run python main.py https://docs.example.com --no-sitemaps --output ./docs
+~/.codex/skills/doc-getter-service
 ```
+
+or on Windows:
+
+```powershell
+$env:USERPROFILE\.codex\skills\doc-getter-service
+```
+
+## Output structure
+
+Each crawl still writes Markdown files and `_mirror-manifest.json` to disk, so the service and CLI share the same crawl engine and artifact format.

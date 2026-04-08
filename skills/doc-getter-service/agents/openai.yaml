@@ -1,0 +1,3 @@
+display_name: Doc Getter Service
+short_description: Wrap the doc_getter crawler as a FastAPI job service
+default_prompt: Use this skill when wrapping the doc_getter crawler as a FastAPI service, designing async crawl jobs, or adjusting manifest, archive, and file-download endpoints.

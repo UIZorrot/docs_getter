@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urljoin, urlsplit, urlunsplit, unquote
 from xml.etree import ElementTree as ET
 
@@ -76,6 +76,7 @@ class CrawlReport:
     scope_prefix: str
     pages: list[PageRecord] = field(default_factory=list)
     skipped: list[dict[str, Any]] = field(default_factory=list)
+    status: str = "completed"
     started_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -92,6 +93,22 @@ class CrawlReport:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def emit_progress(
+    progress_callback: ProgressCallback | None,
+    event: str,
+    **payload: Any,
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback({"event": event, **payload})
+    except Exception:
+        logger.debug("Progress callback raised an exception", exc_info=True)
 
 
 def clean_segment(segment: str) -> str:
@@ -514,6 +531,7 @@ def build_manifest(report: CrawlReport) -> dict[str, Any]:
         "output_dir": str(report.output_dir),
         "site_dir": str(report.site_dir),
         "scope_prefix": report.scope_prefix,
+        "status": report.status,
         "started_at": report.started_at,
         "finished_at": report.finished_at,
         "page_count": report.page_count,
@@ -555,6 +573,8 @@ def crawl_docs(
     user_agent: str = DEFAULT_USER_AGENT,
     scope_prefix: str | None = None,
     include_sitemaps: bool = True,
+    progress_callback: ProgressCallback | None = None,
+    stop_event: threading.Event | None = None,
 ) -> CrawlReport:
     seed_session = requests.Session()
     normalized_start = normalize_url(start_url)
@@ -567,6 +587,16 @@ def crawl_docs(
     logger.info(f"Output directory: {site_dir}")
     logger.info(f"Scope prefix: {effective_scope}")
     logger.info(f"Max pages: {max_pages}, Max depth: {max_depth}, Workers: {workers}")
+    emit_progress(
+        progress_callback,
+        "started",
+        start_url=normalized_start,
+        output_dir=str(site_dir),
+        scope_prefix=effective_scope,
+        max_pages=max_pages,
+        max_depth=max_depth,
+        workers=workers,
+    )
 
     report = CrawlReport(
         start_url=normalized_start,
@@ -580,6 +610,8 @@ def crawl_docs(
     seen: set[str] = set()
 
     def enqueue(candidate: str, depth: int) -> None:
+        if stop_event is not None and stop_event.is_set():
+            return
         normalized = normalize_url(candidate)
         if normalized in seen or normalized in queued:
             return
@@ -611,10 +643,13 @@ def crawl_docs(
     in_flight: dict[concurrent.futures.Future, tuple[str, int]] = {}
 
     def submit_pending(executor: concurrent.futures.ThreadPoolExecutor) -> None:
+        if stop_event is not None and stop_event.is_set():
+            return
         while (
             queue
             and (report.page_count + len(in_flight)) < max_pages
             and len(in_flight) < workers
+            and (stop_event is None or not stop_event.is_set())
         ):
             url, depth = queue.popleft()
             queued.discard(url)
@@ -640,6 +675,13 @@ def crawl_docs(
                 except requests.RequestException as exc:
                     logger.warning(f"Failed to fetch {url}: {exc}")
                     report.skipped.append({"url": url, "error": str(exc)})
+                    emit_progress(
+                        progress_callback,
+                        "skipped",
+                        url=url,
+                        error=str(exc),
+                        skipped_count=report.skipped_count,
+                    )
                     continue
 
                 if not looks_like_html(response):
@@ -650,6 +692,13 @@ def crawl_docs(
                             "url": url,
                             "error": f"Skipped non-HTML response ({content_type})",
                         }
+                    )
+                    emit_progress(
+                        progress_callback,
+                        "skipped",
+                        url=url,
+                        error=f"Skipped non-HTML response ({content_type})",
+                        skipped_count=report.skipped_count,
                     )
                     continue
 
@@ -700,6 +749,17 @@ def crawl_docs(
                         status_code=response.status_code,
                     )
                 )
+                emit_progress(
+                    progress_callback,
+                    "page",
+                    source_url=url,
+                    final_url=final_url,
+                    output_path=report.pages[-1].output_path,
+                    title=title,
+                    page_count=report.page_count,
+                    skipped_count=report.skipped_count,
+                    queued_count=len(queue),
+                )
 
                 logger.debug(
                     f"Depth {depth}: found {len(discovered_links)} links, queued {queued_count} new"
@@ -708,12 +768,24 @@ def crawl_docs(
             if delay > 0 and done:
                 time.sleep(delay)
 
+            if stop_event is not None and stop_event.is_set():
+                break
+
             submit_pending(executor)
 
     report.finished_at = utc_now_iso()
+    report.status = "cancelled" if stop_event is not None and stop_event.is_set() else "completed"
     write_manifest(report)
     logger.info(
         f"Crawl complete. Pages written: {report.page_count}, Skipped: {report.skipped_count}"
+    )
+    emit_progress(
+        progress_callback,
+        "finished",
+        status=report.status,
+        page_count=report.page_count,
+        skipped_count=report.skipped_count,
+        finished_at=report.finished_at,
     )
     return report
 
@@ -723,6 +795,7 @@ def format_report(report: CrawlReport) -> str:
         f"Start URL: {report.start_url}",
         f"Site dir: {report.site_dir}",
         f"Scope prefix: {report.scope_prefix}",
+        f"Status: {report.status}",
         f"Pages written: {report.page_count}",
         f"Skipped: {report.skipped_count}",
     ]
@@ -820,3 +893,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
