@@ -1,0 +1,18 @@
+[project]
+name = "doc-getter"
+version = "0.1.0"
+description = "Standalone docs mirror tool"
+requires-python = ">=3.12"
+dependencies = [
+  "beautifulsoup4>=4.14.3",
+  "markdownify>=1.2.2",
+  "requests>=2.33.1",
+  "scrapling>=0.4.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
