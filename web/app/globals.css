@@ -123,13 +123,14 @@ a {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 32px;
-    padding: 0 12px;
+    min-height: 28px;
+    padding: 0 10px;
     border: 1px solid var(--border);
     background: #fff;
     color: var(--text);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
+    line-height: 1;
 }
 
 .donateLink:hover {
