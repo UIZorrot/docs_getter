@@ -19,7 +19,7 @@ uv sync
 ## CLI usage
 
 ```bash
-uv run python main.py https://openrouter.ai/docs/ --output ./docs --workers 10
+uv run python main.py https://docs.commonstack.ai/ --output ./docs --workers 10
 ```
 
 Useful flags:
@@ -47,6 +47,46 @@ uv run uvicorn service:app --host 0.0.0.0 --port 8000
 ```
 
 The service stores each crawl under `runs/<job_id>/` by default.
+
+### Public deployment recommendation
+
+If your goal is **“let other people try it quickly”**, the most practical setup is:
+
+- **Frontend:** Next.js on **Vercel**
+- **Backend:** this FastAPI service on **Railway / Render / Fly.io**
+
+Why not Vercel-only for the current Python service?
+
+- the crawl can run for a while
+- jobs are tracked in memory
+- output files are written to disk under `runs/`
+
+That works well on a normal container service, but is a poor fit for stateless serverless functions.
+
+This repo now includes a minimal `web/` Next.js frontend that can call the API directly.
+
+### Backend env vars
+
+```bash
+PORT=8000
+DOC_GETTER_DATA_DIR=runs
+DOC_GETTER_CORS_ORIGINS=http://localhost:3000,https://your-vercel-app.vercel.app
+```
+
+### Frontend env vars
+
+Create `web/.env.local`:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://your-backend-url.example.com
+```
+
+### Deploy flow
+
+1. Deploy the root Python service to Railway/Render/Fly.io.
+2. Set `DOC_GETTER_CORS_ORIGINS` to your Vercel domain.
+3. Deploy `web/` to Vercel.
+4. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL.
 
 ### Create a crawl job
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import threading
 import uuid
 import zipfile
@@ -15,6 +16,7 @@ from typing import Any, Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -24,8 +26,43 @@ logger = logging.getLogger(__name__)
 
 DATA_ROOT = Path(os.getenv("DOC_GETTER_DATA_DIR", "runs")).resolve()
 MAX_JOB_WORKERS = max(2, int(os.getenv("DOC_GETTER_JOB_WORKERS", "4")))
+JOB_RETENTION_SECONDS = max(
+    600,
+    int(os.getenv("DOC_GETTER_JOB_RETENTION_SECONDS", str(12 * 60 * 60))),
+)
+DEFAULT_CORS_ORIGINS = ",".join(
+    [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+)
+
+
+def parse_cors_origins() -> list[str]:
+    raw = os.getenv("DOC_GETTER_CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    return origins or ["*"]
+
+
+CORS_ALLOW_ORIGINS = parse_cors_origins()
+CORS_ALLOW_ORIGIN_REGEX = os.getenv(
+    "DOC_GETTER_CORS_ORIGIN_REGEX",
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$|https://.*\.vercel\.app",
+)
 
 JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+TAGS_METADATA = [
+    {
+        "name": "system",
+        "description": "Service health checks and API documentation entry points.",
+    },
+    {
+        "name": "crawls",
+        "description": "Create crawl jobs, inspect status, cancel work, and download ZIP outputs.",
+    },
+]
 
 
 def utc_now_iso() -> str:
@@ -33,15 +70,37 @@ def utc_now_iso() -> str:
 
 
 class CrawlRequest(BaseModel):
-    start_url: str = Field(min_length=1)
-    scope_prefix: str | None = None
-    max_pages: int = Field(default=500, ge=1, le=10_000)
-    max_depth: int = Field(default=20, ge=0, le=100)
-    timeout: float = Field(default=30.0, gt=0, le=600)
-    delay: float = Field(default=0.0, ge=0, le=60)
-    workers: int = Field(default=5, ge=1, le=64)
-    user_agent: str = DEFAULT_USER_AGENT
-    include_sitemaps: bool = True
+    start_url: str = Field(
+        min_length=1,
+        description="Public documentation start URL to mirror.",
+        examples=["https://openrouter.ai/docs/"],
+    )
+    scope_prefix: str | None = Field(
+        default=None,
+        description="Optional path prefix to keep the crawl inside a docs subtree, such as /docs/.",
+        examples=["/docs/"],
+    )
+    max_pages: int = Field(default=500, ge=1, le=10_000, description="Maximum pages to crawl.")
+    max_depth: int = Field(default=20, ge=0, le=100, description="Maximum crawl depth from the start URL.")
+    timeout: float = Field(default=30.0, gt=0, le=600, description="Per-request timeout in seconds.")
+    delay: float = Field(default=0.0, ge=0, le=60, description="Optional delay between requests.")
+    workers: int = Field(default=5, ge=1, le=64, description="Number of concurrent crawl workers.")
+    user_agent: str = Field(default=DEFAULT_USER_AGENT, description="User-Agent header used during crawling.")
+    include_sitemaps: bool = Field(default=True, description="Whether sitemap discovery should be used.")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "start_url": "https://openrouter.ai/docs/",
+                    "scope_prefix": "/docs/",
+                    "max_pages": 80,
+                    "max_depth": 8,
+                    "workers": 6,
+                }
+            ]
+        }
+    }
 
 
 class CrawlPage(BaseModel):
@@ -145,17 +204,60 @@ class JobState:
 
 
 class JobManager:
-    def __init__(self, root: Path, max_workers: int) -> None:
+    def __init__(
+        self,
+        root: Path,
+        max_workers: int,
+        retention_seconds: int = JOB_RETENTION_SECONDS,
+    ) -> None:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._jobs: dict[str, JobState] = {}
         self._lock = threading.Lock()
+        self.retention_seconds = retention_seconds
+        self.cleanup_expired_jobs()
 
     def close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
 
+    def _is_expired(self, value: str | None) -> bool:
+        if not value:
+            return False
+        try:
+            timestamp = datetime.fromisoformat(value)
+        except ValueError:
+            return False
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
+        return age_seconds >= self.retention_seconds
+
+    def cleanup_expired_jobs(self) -> None:
+        stale_job_dirs: list[Path] = []
+
+        with self._lock:
+            for job_id, state in list(self._jobs.items()):
+                marker = state.finished_at or state.created_at
+                if state.status in {"completed", "failed", "cancelled"} and self._is_expired(marker):
+                    stale_job_dirs.append(state.job_dir)
+                    self._jobs.pop(job_id, None)
+
+        for job_dir in stale_job_dirs:
+            shutil.rmtree(job_dir, ignore_errors=True)
+
+        for path in self.root.iterdir():
+            if not path.is_dir():
+                continue
+            try:
+                modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+            if (datetime.now(timezone.utc) - modified_at).total_seconds() >= self.retention_seconds:
+                shutil.rmtree(path, ignore_errors=True)
+
     def create_job(self, request: CrawlRequest) -> JobState:
+        self.cleanup_expired_jobs()
         job_id = uuid.uuid4().hex
         job_dir = self.root / job_id
         content_dir = job_dir / "content"
@@ -223,11 +325,13 @@ class JobManager:
             state.finished_at = report.finished_at
             state.status = report.status
             self._write_archive(state)
+            self.cleanup_expired_jobs()
         except Exception as exc:  # pragma: no cover - surfaced through API state
             logger.exception("Job %s failed", job_id)
             state.error = str(exc)
             state.status = "failed"
             state.finished_at = utc_now_iso()
+            self.cleanup_expired_jobs()
 
     def _write_archive(self, state: JobState) -> None:
         state.archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -291,7 +395,7 @@ def public_detail(state: JobState) -> CrawlJobDetail:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    manager = JobManager(DATA_ROOT, MAX_JOB_WORKERS)
+    manager = JobManager(DATA_ROOT, MAX_JOB_WORKERS, JOB_RETENTION_SECONDS)
     app.state.job_manager = manager
     try:
         yield
@@ -300,25 +404,77 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="doc_getter service",
+    title="Doc Getter API",
+    summary="Submit a docs URL, crawl it asynchronously, and download a ZIP archive.",
+    description=(
+        "Async API for the `doc_getter` service.\n\n"
+        "## Typical flow\n"
+        "1. `POST /v1/crawls` with a `start_url`\n"
+        "2. Poll `GET /v1/crawls/{job_id}` until status becomes `completed`\n"
+        "3. Download the result from `GET /v1/crawls/{job_id}/archive`\n\n"
+        f"Generated files are temporary and are cleaned up automatically after about {JOB_RETENTION_SECONDS} seconds."
+    ),
     version="0.1.0",
     lifespan=lifespan,
+    openapi_tags=TAGS_METADATA,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    swagger_ui_parameters={
+        "displayRequestDuration": True,
+        "docExpansion": "list",
+        "defaultModelsExpandDepth": 2,
+    },
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_origin_regex=CORS_ALLOW_ORIGIN_REGEX,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
-@app.get("/healthz")
+@app.get("/", tags=["system"], summary="API index")
+def index() -> dict[str, Any]:
+    return {
+        "name": "doc_getter service",
+        "status": "ok",
+        "docs": "/docs",
+        "redoc": "/redoc",
+        "openapi": "/openapi.json",
+        "healthz": "/healthz",
+        "retention_seconds": JOB_RETENTION_SECONDS,
+    }
+
+
+@app.get("/healthz", tags=["system"], summary="Health check")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/v1/crawls", response_model=CrawlJobSummary, status_code=202)
+@app.post(
+    "/v1/crawls",
+    response_model=CrawlJobSummary,
+    status_code=202,
+    tags=["crawls"],
+    summary="Create a crawl job",
+    description="Submit a public docs URL and start an asynchronous crawl job.",
+)
 def create_crawl(request: CrawlRequest) -> CrawlJobSummary:
     manager: JobManager = app.state.job_manager
     state = manager.create_job(request)
     return public_summary(state)
 
 
-@app.get("/v1/crawls/{job_id}", response_model=CrawlJobDetail)
+@app.get(
+    "/v1/crawls/{job_id}",
+    response_model=CrawlJobDetail,
+    tags=["crawls"],
+    summary="Get crawl job status",
+    description="Poll a job until it reaches `completed`, `failed`, or `cancelled`.",
+)
 def get_crawl(job_id: str) -> CrawlJobDetail:
     manager: JobManager = app.state.job_manager
     try:
@@ -328,7 +484,12 @@ def get_crawl(job_id: str) -> CrawlJobDetail:
     return public_detail(state)
 
 
-@app.post("/v1/crawls/{job_id}/cancel", response_model=CrawlJobSummary)
+@app.post(
+    "/v1/crawls/{job_id}/cancel",
+    response_model=CrawlJobSummary,
+    tags=["crawls"],
+    summary="Cancel a crawl job",
+)
 def cancel_crawl(job_id: str) -> CrawlJobSummary:
     manager: JobManager = app.state.job_manager
     try:
@@ -338,7 +499,11 @@ def cancel_crawl(job_id: str) -> CrawlJobSummary:
     return public_summary(state)
 
 
-@app.get("/v1/crawls/{job_id}/manifest")
+@app.get(
+    "/v1/crawls/{job_id}/manifest",
+    tags=["crawls"],
+    summary="Get the crawl manifest",
+)
 def get_manifest(job_id: str) -> dict[str, Any]:
     manager: JobManager = app.state.job_manager
     try:
@@ -350,7 +515,11 @@ def get_manifest(job_id: str) -> dict[str, Any]:
     return state.report
 
 
-@app.get("/v1/crawls/{job_id}/archive")
+@app.get(
+    "/v1/crawls/{job_id}/archive",
+    tags=["crawls"],
+    summary="Download the ZIP archive",
+)
 def get_archive(job_id: str) -> FileResponse:
     manager: JobManager = app.state.job_manager
     try:
@@ -366,7 +535,11 @@ def get_archive(job_id: str) -> FileResponse:
     )
 
 
-@app.get("/v1/crawls/{job_id}/files")
+@app.get(
+    "/v1/crawls/{job_id}/files",
+    tags=["crawls"],
+    summary="List generated files",
+)
 def list_files(job_id: str) -> dict[str, Any]:
     manager: JobManager = app.state.job_manager
     try:
@@ -387,7 +560,11 @@ def list_files(job_id: str) -> dict[str, Any]:
     return {"job_id": job_id, "files": files}
 
 
-@app.get("/v1/crawls/{job_id}/files/{relative_path:path}")
+@app.get(
+    "/v1/crawls/{job_id}/files/{relative_path:path}",
+    tags=["crawls"],
+    summary="Download one generated file",
+)
 def get_file(job_id: str, relative_path: str) -> FileResponse:
     manager: JobManager = app.state.job_manager
     try:
@@ -401,7 +578,8 @@ def get_file(job_id: str, relative_path: str) -> FileResponse:
 
 
 def main() -> None:
-    uvicorn.run("service:app", host="0.0.0.0", port=8000, reload=False)
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("service:app", host="0.0.0.0", port=port, reload=False)
 
 
 if __name__ == "__main__":
