@@ -1,0 +1,3 @@
+display_name: Doc Getter Service
+short_description: Public docs-to-ZIP service for getdoc.tool.txzy.net and api.tool.getdoc.txzy.net
+default_prompt: Use this skill when working on the public Doc Getter service: the Next.js frontend at getdoc.tool.txzy.net, the FastAPI backend at api.tool.getdoc.txzy.net, Swagger/OpenAPI docs, async crawl jobs, ZIP downloads, temporary file cleanup, or the one-field UX where users only submit a docs URL.
