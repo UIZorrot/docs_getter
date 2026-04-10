@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
+type Language = 'zh' | 'en';
 type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 type CrawlJob = {
@@ -17,11 +18,85 @@ type CrawlJob = {
     cancel_url: string;
 };
 
-function normalizeApiBase(value: string) {
-    return value.replace(/\/$/, '').replace('://0.0.0.0', '://127.0.0.1');
-}
+const API_BASE = '/api';
+const LANGUAGE_STORAGE_KEY = 'doc-getter-language';
 
-const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_BASE_URL ?? '');
+const COPY = {
+    zh: {
+        pageTitle: '在线文档抓取与 ZIP 下载',
+        pageDescription: '输入文档 URL，抓取完成后直接下载 ZIP。',
+        startTitle: '开始抓取',
+        urlLabel: '文档 URL',
+        submit: '开始抓取并打包',
+        submitting: '正在提交…',
+        cancel: '取消任务',
+        resultTitle: '下载结果',
+        resultEmpty: '提交后会自动轮询状态。完成后，这里会出现 ZIP 下载按钮。',
+        inProgress: '正在抓取和打包，请稍候…',
+        downloadZip: '下载 ZIP 压缩包',
+        retentionHint: '这是一个临时下载结果，服务会按保留策略自动清理旧文件。',
+        pages: '页面数',
+        skipped: '跳过',
+        createFailed: '创建任务失败',
+        pollFailed: '读取任务状态失败',
+        cancelFailed: '取消任务失败',
+        languageLabel: '语言切换',
+    },
+    en: {
+        pageTitle: 'Grab docs and download a ZIP',
+        pageDescription: 'Paste a docs URL and download the ZIP when the crawl is done.',
+        startTitle: 'Start a crawl',
+        urlLabel: 'Docs URL',
+        submit: 'Start crawling and package ZIP',
+        submitting: 'Submitting…',
+        cancel: 'Cancel job',
+        resultTitle: 'Download result',
+        resultEmpty: 'After submission, the page will poll automatically and show a ZIP download button when the job finishes.',
+        inProgress: 'Crawling and packaging are in progress. Please wait…',
+        downloadZip: 'Download ZIP archive',
+        retentionHint: 'This is a temporary download result and old files are cleaned up automatically.',
+        pages: 'Pages',
+        skipped: 'Skipped',
+        createFailed: 'Failed to create the job',
+        pollFailed: 'Failed to read the job status',
+        cancelFailed: 'Failed to cancel the job',
+        languageLabel: 'Language switch',
+    },
+} as const;
+
+const STATUS_LABELS: Record<Language, Record<JobStatus, string>> = {
+    zh: {
+        queued: '排队中',
+        running: '抓取中',
+        completed: '已完成',
+        failed: '失败',
+        cancelled: '已取消',
+    },
+    en: {
+        queued: 'Queued',
+        running: 'Running',
+        completed: 'Completed',
+        failed: 'Failed',
+        cancelled: 'Cancelled',
+    },
+};
+
+function detectPreferredLanguage(): Language {
+    if (typeof window === 'undefined') {
+        return 'zh';
+    }
+
+    const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (saved === 'zh' || saved === 'en') {
+        return saved;
+    }
+
+    const browserLanguages = window.navigator.languages?.length
+        ? window.navigator.languages
+        : [window.navigator.language];
+
+    return browserLanguages.some((value) => value.toLowerCase().startsWith('zh')) ? 'zh' : 'en';
+}
 
 function toAbsoluteUrl(apiBase: string, path: string) {
     if (!path) {
@@ -34,10 +109,26 @@ function toAbsoluteUrl(apiBase: string, path: string) {
 }
 
 export default function HomePage() {
+    const [language, setLanguage] = useState<Language>('zh');
     const [startUrl, setStartUrl] = useState('https://openrouter.ai/docs/');
     const [job, setJob] = useState<CrawlJob | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        setLanguage(detectPreferredLanguage());
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+        document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+    }, [language]);
+
+    const t = COPY[language];
+    const statusLabels = STATUS_LABELS[language];
 
     const isFinished = useMemo(
         () => (job ? ['completed', 'failed', 'cancelled'].includes(job.status) : false),
@@ -48,34 +139,29 @@ export default function HomePage() {
         const response = await fetch(`${API_BASE}/v1/crawls/${jobId}`, { cache: 'no-store' });
         const data = await response.json();
         if (!response.ok) {
-            throw new Error(data.detail ?? '读取任务状态失败');
+            throw new Error(data.detail ?? t.pollFailed);
         }
         setJob(data);
     }
 
     useEffect(() => {
-        if (!job || !API_BASE || isFinished) {
+        if (!job || isFinished) {
             return;
         }
 
         const timer = window.setInterval(() => {
             refreshJob(job.job_id).catch((cause: unknown) => {
-                setError(cause instanceof Error ? cause.message : '轮询任务状态失败');
+                setError(cause instanceof Error ? cause.message : t.pollFailed);
             });
         }, 2500);
 
         return () => window.clearInterval(timer);
-    }, [isFinished, job]);
+    }, [isFinished, job, language]);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         setError('');
         setJob(null);
-
-        if (!API_BASE) {
-            setError('请在 web/.env.local 里设置 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000。');
-            return;
-        }
 
         setSubmitting(true);
         try {
@@ -90,11 +176,11 @@ export default function HomePage() {
             });
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.detail ?? '创建任务失败');
+                throw new Error(data.detail ?? t.createFailed);
             }
             setJob(data);
         } catch (cause: unknown) {
-            setError(cause instanceof Error ? cause.message : '创建任务失败');
+            setError(cause instanceof Error ? cause.message : t.createFailed);
         } finally {
             setSubmitting(false);
         }
@@ -111,31 +197,48 @@ export default function HomePage() {
             });
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.detail ?? '取消任务失败');
+                throw new Error(data.detail ?? t.cancelFailed);
             }
             setJob(data);
         } catch (cause: unknown) {
-            setError(cause instanceof Error ? cause.message : '取消任务失败');
+            setError(cause instanceof Error ? cause.message : t.cancelFailed);
         }
     }
 
     return (
         <main className="page">
+            <div className="topBar">
+                <p className="eyebrow">txzy/tool/getdoc</p>
+
+                <div className="languageSwitcher" role="group" aria-label={t.languageLabel}>
+                    <button
+                        type="button"
+                        className={`toggleButton ${language === 'zh' ? 'active' : ''}`}
+                        onClick={() => setLanguage('zh')}
+                    >
+                        中文
+                    </button>
+                    <button
+                        type="button"
+                        className={`toggleButton ${language === 'en' ? 'active' : ''}`}
+                        onClick={() => setLanguage('en')}
+                    >
+                        EN
+                    </button>
+                </div>
+            </div>
+
             <section className="hero card">
-                <p className="eyebrow">Doc Getter</p>
-                <h1>在线文档抓取与 ZIP 下载</h1>
-                <p className="muted">只需要填写文档 URL。服务会在独立临时目录中抓取、打包，并在完成后提供 ZIP 下载。</p>
+                <h1>{t.pageTitle}</h1>
+                <p className="muted">{t.pageDescription}</p>
             </section>
 
             <section className="card">
-                <h2>开始抓取</h2>
-                <p className="muted">
-                    当前后端：<code>{API_BASE || '未配置'}</code>
-                </p>
+                <h2>{t.startTitle}</h2>
 
                 <form className="formGrid" onSubmit={handleSubmit}>
                     <label className="field fieldSpan">
-                        <span>文档 URL</span>
+                        <span>{t.urlLabel}</span>
                         <input
                             required
                             value={startUrl}
@@ -146,49 +249,51 @@ export default function HomePage() {
 
                     <div className="actions fieldSpan">
                         <button type="submit" disabled={submitting}>
-                            {submitting ? '正在提交…' : '开始抓取并打包'}
+                            {submitting ? t.submitting : t.submit}
                         </button>
                         {job && !isFinished ? (
                             <button type="button" className="secondary" onClick={handleCancel}>
-                                取消任务
+                                {t.cancel}
                             </button>
                         ) : null}
                     </div>
                 </form>
 
-                {!API_BASE ? (
-                    <p className="error">请在前端环境变量里使用 `http://127.0.0.1:8000`，不要使用 `0.0.0.0`。</p>
-                ) : null}
                 {error ? <p className="error">{error}</p> : null}
             </section>
 
             <section className="card">
-                <h2>下载结果</h2>
+                <h2>{t.resultTitle}</h2>
                 {!job ? (
-                    <p className="muted">提交后会自动轮询状态。完成后，这里会出现 ZIP 下载按钮。</p>
+                    <p className="muted">{t.resultEmpty}</p>
                 ) : (
                     <>
                         <div className="statusRow">
-                            <span className={`badge badge-${job.status}`}>{job.status}</span>
-                            <span>Pages: {job.page_count}</span>
-                            <span>Skipped: {job.skipped_count}</span>
+                            <span className={`badge badge-${job.status}`}>{statusLabels[job.status]}</span>
+                            <span>
+                                {t.pages}: {job.page_count}
+                            </span>
+                            <span>
+                                {t.skipped}: {job.skipped_count}
+                            </span>
                         </div>
 
-                        {job.status === 'queued' || job.status === 'running' ? (
-                            <p className="muted">正在抓取和打包，请稍候…</p>
-                        ) : null}
+                        {job.status === 'queued' || job.status === 'running' ? <p className="muted">{t.inProgress}</p> : null}
 
                         {job.status === 'completed' ? (
-                            <div className="links">
-                                <a href={toAbsoluteUrl(API_BASE, job.archive_url)} target="_blank" rel="noreferrer">
-                                    下载 ZIP 压缩包
+                            <div className="actions">
+                                <a
+                                    className="buttonLink"
+                                    href={toAbsoluteUrl(API_BASE, job.archive_url)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    {t.downloadZip}
                                 </a>
                             </div>
                         ) : null}
 
-                        {job.status === 'completed' ? (
-                            <p className="muted">这是一个临时下载结果，服务会按保留策略自动清理旧文件。</p>
-                        ) : null}
+                        {job.status === 'completed' ? <p className="muted">{t.retentionHint}</p> : null}
 
                         {job.error ? <p className="error">{job.error}</p> : null}
                     </>

@@ -4,3 +4,4 @@ __pycache__/
 runs/
 web/node_modules/
 web/.next/
+*env

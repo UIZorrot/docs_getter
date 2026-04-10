@@ -36,6 +36,7 @@ DEFAULT_CORS_ORIGINS = ",".join(
         "http://localhost:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
+        "https://getdoc.tool.txzy.net",
     ]
 )
 
@@ -49,7 +50,7 @@ def parse_cors_origins() -> list[str]:
 CORS_ALLOW_ORIGINS = parse_cors_origins()
 CORS_ALLOW_ORIGIN_REGEX = os.getenv(
     "DOC_GETTER_CORS_ORIGIN_REGEX",
-    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$|https://.*\.vercel\.app",
+    r"https?://(localhost|127\.0\.0\.1)(:\d+)?$|https://.*\.vercel\.app|https://.*\.txzy\.net",
 )
 
 JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
