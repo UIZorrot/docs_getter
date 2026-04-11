@@ -24,11 +24,11 @@ const LANGUAGE_STORAGE_KEY = 'doc-getter-language';
 const COPY = {
     zh: {
         pageTitle: '在线文档抓取与 ZIP 下载',
-        pageDescription: '输入文档 URL，抓取完成后直接下载 ZIP。',
+        pageDescription: '输入文档链接，抓取完成后直接下载 ZIP。',
         donate: '打赏',
         github: 'GitHub',
         startTitle: '开始抓取',
-        urlLabel: '文档 URL',
+        urlLabel: '文档链接',
         submit: '开始抓取并打包',
         submitting: '正在提交…',
         cancel: '取消任务',
@@ -46,11 +46,11 @@ const COPY = {
     },
     en: {
         pageTitle: 'Grab docs and download a ZIP',
-        pageDescription: 'Paste a docs URL and download the ZIP when the crawl is done.',
+        pageDescription: 'Paste a docs link and download the ZIP when the crawl is done.',
         donate: 'Tip',
         github: 'GitHub',
         startTitle: 'Start a crawl',
-        urlLabel: 'Docs URL',
+        urlLabel: 'Docs link',
         submit: 'Start crawling and package ZIP',
         submitting: 'Submitting…',
         cancel: 'Cancel job',
