@@ -11,11 +11,16 @@ build/
 venv/
 .env
 .env.*
+*env
 
 # Test / crawl artifacts
 test_output/
 runs/
 docs/
+
+# Web frontend
+web/node_modules/
+web/.next/
 
 # Tooling caches
 .pytest_cache/
