@@ -19,7 +19,7 @@ uv sync
 ## CLI usage
 
 ```bash
-uv run python main.py https://openrouter.ai/docs/ --output ./docs --workers 10
+uv run python main.py https://docs.commonstack.ai/ --output ./docs --workers 10
 ```
 
 Useful flags:

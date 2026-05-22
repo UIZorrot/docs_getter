@@ -35,6 +35,7 @@ DEFAULT_USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 HTML_TYPES = {"text/html", "application/xhtml+xml"}
+PAGE_FILE_SUFFIXES = {".html", ".htm", ".xhtml", ".php", ".asp", ".aspx"}
 SKIP_TAGS = {
     "script",
     "style",
@@ -153,8 +154,28 @@ def infer_scope_prefix(start_url: str) -> str:
         idx = parts.index("docs")
         return "/" + "/".join(parts[: idx + 1]) + "/"
     if len(parts) == 1:
-        return "/"
+        return f"/{parts[0]}/"
     return "/" + parts[0] + "/"
+
+
+def link_resolution_base(url: str) -> str:
+    """Return a directory-style base URL suitable for resolving relative hrefs."""
+    parsed = urlsplit(url)
+    path = parsed.path or "/"
+    if path == "/" or path.endswith("/"):
+        directory_path = path
+    else:
+        suffix = PurePosixPath(path).suffix.lower()
+        if suffix in PAGE_FILE_SUFFIXES:
+            parent = PurePosixPath(path).parent.as_posix()
+            directory_path = f"{parent}/" if parent != "." else "/"
+        else:
+            directory_path = f"{path}/"
+    return urlunsplit((parsed.scheme, parsed.netloc, directory_path, parsed.query, ""))
+
+
+def resolve_href(current_url: str, raw_href: str) -> str:
+    return normalize_url(urljoin(link_resolution_base(current_url), raw_href))
 
 
 def safe_host_dir(hostname: str) -> str:
@@ -411,6 +432,12 @@ def discover_seed_urls(
     if not sitemap_candidates:
         logger.debug("No sitemaps found in robots.txt, trying /sitemap.xml")
         sitemap_candidates = [urljoin(site_root + "/", "sitemap.xml")]
+        start_path = parsed.path or "/"
+        if start_path not in {"/", ""}:
+            scoped_root = urljoin(site_root + "/", start_path.lstrip("/"))
+            scoped_sitemap = urljoin(scoped_root, "sitemap.xml")
+            if scoped_sitemap not in sitemap_candidates:
+                sitemap_candidates.append(scoped_sitemap)
 
     for sitemap_url in sitemap_candidates:
         for candidate in parse_sitemap_xml(session, sitemap_url, timeout, user_agent):
@@ -455,7 +482,7 @@ def rewrite_internal_links(
         raw_href = anchor.get("href", "").strip()
         if not raw_href or raw_href.startswith(("javascript:", "mailto:", "tel:")):
             continue
-        target = normalize_url(urljoin(current_url, raw_href))
+        target = resolve_href(current_url, raw_href)
         if target == normalize_url(current_url):
             fragment = urlsplit(raw_href).fragment
             if fragment:
