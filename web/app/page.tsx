@@ -363,7 +363,7 @@ export default function HomePage() {
                 </div>
             </section>
 
-            <section className="card cardSpanFull">
+            <section className="card">
                 <div className="cardIconRing" aria-hidden>
                     <div className={resultInnerClass}>
                         {job?.status === 'completed' ? <IconCheck /> : <IconArchive />}
@@ -457,7 +457,7 @@ export default function HomePage() {
                 </div>
             </section>
 
-            <footer className="footer cardSpanFull">
+            <footer className="footer">
                 <a className="footerBar" href={GITHUB_URL} target="_blank" rel="noreferrer">
                     <span className="footerIcon" aria-hidden>
                         <IconGithub />

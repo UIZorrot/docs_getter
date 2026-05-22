@@ -22,7 +22,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                     rel="stylesheet"
                 />
             </head>
-            <body>{children}</body>
+            <body>
+                <div className="site">{children}</div>
+            </body>
         </html>
     );
 }

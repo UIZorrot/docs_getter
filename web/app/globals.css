@@ -36,8 +36,8 @@
         6px 6px 14px rgba(45, 55, 72, 0.28),
         -3px -3px 10px rgba(255, 255, 255, 0.45);
     /* Responsive layout */
-    --page-gutter: clamp(16px, 4vw, 56px);
-    --page-max: 960px;
+    --page-gutter: clamp(16px, 4vw, 48px);
+    --page-max: 100%;
 }
 
 * {
@@ -55,6 +55,14 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
+.site {
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 body::selection {
     background: var(--accent);
     color: #fff;
@@ -66,10 +74,18 @@ a {
 }
 
 .page {
-    width: min(var(--page-max), calc(100vw - var(--page-gutter) * 2));
-    max-width: 100%;
-    margin: 0 auto;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: var(--page-max);
+    margin-inline: auto;
     padding: clamp(20px, 3vh, 40px) var(--page-gutter);
+}
+
+.pageGrid,
+.tipPanel,
+.header,
+.footer {
+    width: 100%;
 }
 
 /* ── Header ── */
@@ -123,6 +139,7 @@ a {
     font-size: 13px;
     color: var(--text-secondary);
     line-height: 1.5;
+    box-sizing: border-box;
 }
 
 /* Language: recessed track + raised active pill */
@@ -160,11 +177,13 @@ a {
     display: flex;
     gap: 18px;
     align-items: center;
+    width: 100%;
     padding: 22px 20px;
     margin-bottom: 18px;
     border-radius: var(--radius-lg);
     background: var(--neu-bg);
     box-shadow: var(--shadow-raised);
+    box-sizing: border-box;
 }
 
 /* Icon: raised square (hero), inset circle (form), ring+inset (result) */
@@ -244,6 +263,7 @@ a {
 .cardBody {
     flex: 1;
     min-width: 0;
+    width: 100%;
 }
 
 .cardTitle {
@@ -264,6 +284,7 @@ a {
 /* ── Form ── */
 .urlForm {
     margin-top: 2px;
+    width: 100%;
 }
 
 .fieldLabel {
@@ -628,10 +649,16 @@ a.btnDownload:hover {
     padding-top: 1px;
 }
 
-/* Tablet+：略放宽内容区 */
+/* Tablet+ */
+@media (min-width: 640px) {
+    :root {
+        --page-max: 600px;
+    }
+}
+
 @media (min-width: 768px) {
     :root {
-        --page-max: 880px;
+        --page-max: 720px;
     }
 
     .card {
@@ -648,11 +675,10 @@ a.btnDownload:hover {
     }
 }
 
-/* 桌面宽屏：占满可用宽度（上限 1040px） */
 @media (min-width: 1024px) {
     :root {
-        --page-max: 1040px;
-        --page-gutter: clamp(32px, 5vw, 72px);
+        --page-max: 880px;
+        --page-gutter: clamp(24px, 4vw, 56px);
     }
 
     .card {
@@ -671,27 +697,9 @@ a.btnDownload:hover {
     }
 }
 
-/* 超宽屏：双列排布（介绍 + 抓取），结果区独占一行 */
 @media (min-width: 1280px) {
     :root {
-        --page-max: 1200px;
-    }
-
-    .pageGrid {
-        display: grid;
-        grid-template-columns: 1fr 1.35fr;
-        gap: 18px;
-        align-items: start;
-    }
-
-    .pageGrid > .card,
-    .pageGrid > .footer {
-        margin-bottom: 0;
-    }
-
-    .pageGrid .cardSpanFull,
-    .footer.cardSpanFull {
-        grid-column: 1 / -1;
+        --page-max: 960px;
     }
 }
 
@@ -699,6 +707,7 @@ a.btnDownload:hover {
     display: flex;
     flex-direction: column;
     gap: 0;
+    width: 100%;
 }
 
 .pageGrid > .card,
@@ -710,11 +719,13 @@ a.btnDownload:hover {
     margin-bottom: 0;
 }
 
-/* 手机 */
-@media (max-width: 640px) {
+@media (max-width: 639px) {
     :root {
         --page-gutter: 16px;
-        --page-max: 100%;
+    }
+
+    .page {
+        max-width: 100%;
     }
 
     .card {
