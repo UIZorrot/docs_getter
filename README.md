@@ -43,8 +43,10 @@ uv run python service.py
 or:
 
 ```bash
-uv run uvicorn service:app --host 0.0.0.0 --port 8000
+uv run python -m uvicorn service:app --host 0.0.0.0 --port 8000
 ```
+
+Note: use a space after `--port` (`--port 8000`, not `--port8000`). On Windows, `uv run uvicorn ...` may fail with `Failed to canonicalize script path`; prefer `python -m uvicorn` or `python service.py` above.
 
 The service stores each crawl under `runs/<job_id>/` by default.
 
