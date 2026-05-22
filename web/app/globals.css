@@ -35,6 +35,9 @@
     --shadow-primary:
         6px 6px 14px rgba(45, 55, 72, 0.28),
         -3px -3px 10px rgba(255, 255, 255, 0.45);
+    /* Responsive layout */
+    --page-gutter: clamp(16px, 4vw, 56px);
+    --page-max: 960px;
 }
 
 * {
@@ -63,9 +66,10 @@ a {
 }
 
 .page {
-    max-width: 520px;
+    width: min(var(--page-max), calc(100vw - var(--page-gutter) * 2));
+    max-width: 100%;
     margin: 0 auto;
-    padding: 24px 20px 28px;
+    padding: clamp(20px, 3vh, 40px) var(--page-gutter);
 }
 
 /* ── Header ── */
@@ -624,9 +628,93 @@ a.btnDownload:hover {
     padding-top: 1px;
 }
 
-@media (max-width: 480px) {
-    .page {
-        padding: 20px 16px 24px;
+/* Tablet+：略放宽内容区 */
+@media (min-width: 768px) {
+    :root {
+        --page-max: 880px;
+    }
+
+    .card {
+        padding: 24px 28px;
+        gap: 22px;
+    }
+
+    .cardTitle {
+        font-size: 20px;
+    }
+
+    .urlInput {
+        font-size: 15px;
+    }
+}
+
+/* 桌面宽屏：占满可用宽度（上限 1040px） */
+@media (min-width: 1024px) {
+    :root {
+        --page-max: 1040px;
+        --page-gutter: clamp(32px, 5vw, 72px);
+    }
+
+    .card {
+        padding: 26px 32px;
+    }
+
+    .formActions {
+        flex-wrap: nowrap;
+    }
+
+    .btnPrimary,
+    .btnRaised,
+    .btnDownload,
+    a.btnDownload {
+        min-height: 46px;
+    }
+}
+
+/* 超宽屏：双列排布（介绍 + 抓取），结果区独占一行 */
+@media (min-width: 1280px) {
+    :root {
+        --page-max: 1200px;
+    }
+
+    .pageGrid {
+        display: grid;
+        grid-template-columns: 1fr 1.35fr;
+        gap: 18px;
+        align-items: start;
+    }
+
+    .pageGrid > .card,
+    .pageGrid > .footer {
+        margin-bottom: 0;
+    }
+
+    .pageGrid .cardSpanFull,
+    .footer.cardSpanFull {
+        grid-column: 1 / -1;
+    }
+}
+
+.pageGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.pageGrid > .card,
+.pageGrid > .footer {
+    margin-bottom: 18px;
+}
+
+.pageGrid > .footer:last-child {
+    margin-bottom: 0;
+}
+
+/* 手机 */
+@media (max-width: 640px) {
+    :root {
+        --page-gutter: 16px;
+        --page-max: 100%;
     }
 
     .card {
@@ -652,5 +740,17 @@ a.btnDownload:hover {
 
     .header {
         flex-wrap: wrap;
+    }
+
+    .formActions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .btnPrimary,
+    .btnRaised,
+    .btnDownload,
+    a.btnDownload {
+        width: 100%;
     }
 }

@@ -318,6 +318,7 @@ export default function HomePage() {
 
             {tipOpen ? <p className="tipPanel">{t.tipBody}</p> : null}
 
+            <div className="pageGrid">
             <section className="card">
                 <div className="cardIcon cardIconSquare cardIconRaised" aria-hidden>
                     <IconArchive />
@@ -362,7 +363,7 @@ export default function HomePage() {
                 </div>
             </section>
 
-            <section className="card">
+            <section className="card cardSpanFull">
                 <div className="cardIconRing" aria-hidden>
                     <div className={resultInnerClass}>
                         {job?.status === 'completed' ? <IconCheck /> : <IconArchive />}
@@ -456,7 +457,7 @@ export default function HomePage() {
                 </div>
             </section>
 
-            <footer className="footer">
+            <footer className="footer cardSpanFull">
                 <a className="footerBar" href={GITHUB_URL} target="_blank" rel="noreferrer">
                     <span className="footerIcon" aria-hidden>
                         <IconGithub />
@@ -464,6 +465,7 @@ export default function HomePage() {
                     <span className="footerLabel">{t.github}</span>
                 </a>
             </footer>
+            </div>
         </main>
     );
 }
