@@ -27,6 +27,8 @@ type CrawlJob = {
 const API_BASE = '/api';
 const LANGUAGE_STORAGE_KEY = 'doc-getter-language';
 const GITHUB_URL = process.env.NEXT_PUBLIC_GITHUB_URL ?? 'https://github.com';
+const TIP_URL =
+    process.env.NEXT_PUBLIC_TIP_URL ?? 'https://buy.stripe.com/5kQ4gybHj2T26Rv1Jh2sM00';
 
 const COPY = {
     zh: {
@@ -48,8 +50,7 @@ const COPY = {
         pollFailed: '读取任务状态失败',
         cancelFailed: '取消任务失败',
         languageLabel: '语言切换',
-        tip: '提示',
-        tipBody: '支持公开文档站（VitePress、MkDocs、Docusaurus 等）。子路径站点请使用带尾部斜杠的首页 URL。',
+        tip: 'Tip',
         skipWarning: '大量页面被跳过，可能是链接解析或权限问题。请检查起始 URL 是否为站点首页。',
         showSkipped: '查看跳过的 URL',
         hideSkipped: '收起',
@@ -76,7 +77,6 @@ const COPY = {
         cancelFailed: 'Failed to cancel the job',
         languageLabel: 'Language',
         tip: 'Tip',
-        tipBody: 'Works with public doc sites (VitePress, MkDocs, Docusaurus, etc.). For subpath deployments, use the homepage URL with a trailing slash.',
         skipWarning: 'Many pages were skipped — often a bad start URL or link resolution issue. Try the site homepage with a trailing slash.',
         showSkipped: 'Show skipped URLs',
         hideSkipped: 'Hide',
@@ -180,7 +180,6 @@ export default function HomePage() {
     const [job, setJob] = useState<CrawlJob | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
-    const [tipOpen, setTipOpen] = useState(false);
     const [skippedOpen, setSkippedOpen] = useState(false);
 
     useEffect(() => {
@@ -289,14 +288,14 @@ export default function HomePage() {
             <header className="header">
                 <div className="brand">
                     <p className="brandTitle">txzy/tool/getdoc</p>
-                    <button
-                        type="button"
+                    <a
                         className="tipBtn"
-                        aria-expanded={tipOpen}
-                        onClick={() => setTipOpen((open) => !open)}
+                        href={TIP_URL}
+                        target="_blank"
+                        rel="noreferrer"
                     >
                         {t.tip}
-                    </button>
+                    </a>
                 </div>
                 <div className="langSwitch" role="group" aria-label={t.languageLabel}>
                     <button
@@ -315,8 +314,6 @@ export default function HomePage() {
                     </button>
                 </div>
             </header>
-
-            {tipOpen ? <p className="tipPanel">{t.tipBody}</p> : null}
 
             <div className="pageGrid">
             <section className="card">
